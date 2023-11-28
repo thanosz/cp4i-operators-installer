@@ -55,7 +55,7 @@ def _channel_handler(version):
 @click.option('--list', is_flag=True, help="List all operators and versions")
 @click.option('--catalog_source_ns', default="openshift-marketplace", help='(Experimental) The namespace to apply the catalogsources (default: openshift-marketplace)')
 @click.option('--target_ns', default="openshift-operators", help='The namespace to deploy the operator subscriptons (default: openshift-operators, i.e. All Namespaces)')
-@click.option('--case', '-c', multiple=True, default=["all"], help='Case to apply (default: all)')
+@click.option('--case', '-c', multiple=True, default=["all"], help='CASE, i.e. operator, to apply (default: all)')
 def operator_handler(version, catalog_source_ns, target_ns, case, list):
    
     click.clear()
