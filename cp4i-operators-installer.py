@@ -247,11 +247,6 @@ def get_pak():
         return False
 
 
-@main.command('get-ibm-pak')
-def pak_handler():
-    return get_pak()
-
-
 def strip_namespace():
     try:
         file_paths = get_catalog_sources_files()
