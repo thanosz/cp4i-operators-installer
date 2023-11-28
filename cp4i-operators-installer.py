@@ -111,7 +111,8 @@ def operator_handler(version, catalog_source_ns, target_ns, case, list):
     
     input("ENTER to continue, Ctrl-C to abort ")
 
-    download_cases(cases)
+    if not download_cases(cases):
+        return
     print("")
     oc_apply_catalog_sources(catalog_source_ns)
     if target_ns != "openshift-operators":
@@ -223,7 +224,7 @@ def get_catalogsource_name(operator):
 
 def download_cases(cases):
     if get_pak() is False:
-        return
+        return False
     click.secho("Downloading CASES...", fg="green")
     try:
         click.secho("Removing .ibm-pak folder...", fg="green")
