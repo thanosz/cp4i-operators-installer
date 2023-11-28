@@ -6,5 +6,7 @@ You also have the option to designate the namespaces to which the catalog-source
 
 To have an idea of how it works, click on the video link below
 
+You will need python 3.11 and the required modules (```pip3 install -r requirements.txt```)
+
 [![Watch the video](https://img.youtube.com/vi/JDQ1kJDeUwk/hqdefault.jpg)](https://youtu.be/JDQ1kJDeUwk)
 
