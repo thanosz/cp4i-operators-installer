@@ -234,6 +234,7 @@ def download_cases(cases):
     for k, v in cases.items():
         click.secho(f"\nDownloading {k}...", fg="green")
         proc = subprocess.run(v[2], shell=True)
+    return True
 
 
 def get_pak():
