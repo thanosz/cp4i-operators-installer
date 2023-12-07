@@ -19,7 +19,7 @@ class Operator:
         self.name = None
         self.channel = None
         self.case_version = None
-        self.catalog_source_name = None
+        self.catsrc_name = None
 
         pattern = r'export CASE_NAME=([^\s]+)'
         match = re.search(pattern, self.command)
@@ -36,7 +36,7 @@ class Operator:
                 friendly_name: {self.friendly_name}
                 version: {self.case_version}
                 channel: {self.channel}
-                catalog_source_name: {self.catalog_source_name}
+                catalog_source_name: {self.catsrc_name}
                 command: {self.command}''')
 
 class Operators: # singleton holding a map of operators
@@ -150,7 +150,7 @@ class SubscriptionHandler:
         for name in self._operators_map.keys():
             for catalog in catalog_sources:
                 if name.split('-')[1] in catalog:
-                    self._operators_map.get(name).catalog_source_name = catalog
+                    self._operators_map.get(name).catsrc_name = catalog
     
     def apply_catalog_sources(self):
         click.secho('\nApplying catalog sources...', fg='green')
@@ -171,7 +171,7 @@ metadata:
 spec:
   channel: {operator.channel}
   name: {operator.name} 
-  source: {operator.catalog_source_name}
+  source: {operator.catsrc_name}
   sourceNamespace: {self._catsrc_ns}
 ''' 
             filename = 'subscription-' + operator.name + '.yaml'
