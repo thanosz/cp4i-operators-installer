@@ -18,7 +18,7 @@ class Operator:
         self.friendly_name = friendly_name
         self.name = None
         self.channel = None
-        self.version = None
+        self.case_version = None
         self.catalog_source_name = None
 
         pattern = r'export CASE_NAME=([^\s]+)'
@@ -28,13 +28,13 @@ class Operator:
         pattern = r'export CASE_VERSION=([^\s]+)'
         match = re.search(pattern, self.command)
         if match:
-            self.version = match.group(1)
+            self.case_version = match.group(1)
 
     def print(self):
         print(f'''
                 name: {self.name}
                 friendly_name: {self.friendly_name}
-                version: {self.version}
+                version: {self.case_version}
                 channel: {self.channel}
                 catalog_source_name: {self.catalog_source_name}
                 command: {self.command}''')
@@ -104,11 +104,9 @@ class OperatorHandler:
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
-        click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
-        
+        click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')    
         for name, operator in self._operators_map.items():
-            click.secho(f'\033[92m{operator.name} \033[0m({operator.friendly_name}): version: \033[92m{operator.version}\033[0m, channel: \033[92m{operator.channel}')
-        
+            click.secho(f'\033[92m{operator.name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
