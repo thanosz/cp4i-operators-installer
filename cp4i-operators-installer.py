@@ -38,14 +38,19 @@ class Operator:
                 channel: {self.channel}
                 catalog_source_name: {self.catalog_source_name}
                 command: {self.command}''')
-        
+
+class Operators: # singleton holding a map of operators
+    operators_map = {}
+    def __new__(cls):
+        if not hasattr(cls, '_instance'):
+            cls._instance = super(Operators, cls).__new__(cls)
+        return cls._instance
+
+
 class OperatorHandler:
     def __init__(self, version):
-        self._operators = {}
+        self._operators_map = Operators().operators_map
         self.version = version
-    
-    def get_operators(self):
-        return self._operators
     
     def populate(self):
         command_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
@@ -56,7 +61,7 @@ class OperatorHandler:
             click.secho(f'\nConnecting to {command_url}', fg='green')
             # get operator details from the doc page
             commands_table = panda.read_html(command_url, match='Export commands')[0]
-            for i in range(0, len(commands_table.index)-1):
+            for i in range(0, len(commands_table.index)):
                 friendly_name = commands_table.iloc[i, 0]
                 export_command = commands_table.iloc[i, 1]
                 operator = Operator(friendly_name, export_command)
@@ -65,18 +70,18 @@ class OperatorHandler:
             click.secho(f'Connecting to {channel_url}', fg='green')
             # get operator channels from the doc page
             channels_table = panda.read_html(channel_url, match='Capability name')[0]
-            for i in range(0, len(channels_table.index)-1):
+            for i in range(0, len(channels_table.index)):
                 friendly_name = channels_table.iloc[i, 1]
                 if type(friendly_name) is not str:
                     continue
-                channel = str(channels_table.iloc[i, 2]).split(',', 1)[0]
+                channel = str(channels_table.iloc[i, 2]).split(',').pop()
                 operator = tmp_operators.get(friendly_name)
                 if operator is not None:
                     operator.channel = channel
 
             # change the map key from operator.friendly_name to operator.name
             for friendly_name, operator in tmp_operators.items():
-                self._operators[operator.name] = operator
+                self._operators_map[operator.name] = operator
         except Exception as e:
             raise Exception(f'Is version {self.version} valid?, {e}')
 
@@ -86,31 +91,33 @@ class OperatorHandler:
         else: 
             filtered_operators = {}
             for name in selection:
-                operator = self._operators.get(name)
+                operator = self._operators_map.get(name)
                 if operator is None: raise Exception(f"Operator '{name}' is not a valid operator name")
                 filtered_operators[name] = operator
-            self._operators = filtered_operators
+            self._operators_map = filtered_operators
         
         # datapower comes with ibm-apiconnect and if both specified, datapower fails
-        if self._operators.get("ibm-apiconnect") is not None: 
-            self._operators.pop("ibm-datapower-operator")
+        if self._operators_map.get("ibm-apiconnect") is not None: 
+            self._operators_map.pop("ibm-datapower-operator")
+        # remove common-services as it comes with CP4I
+        self._operators_map.pop("ibm-cp-common-services")
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
         
-        for name, operator in self._operators.items():
+        for name, operator in self._operators_map.items():
             click.secho(f'\033[92m{operator.name} \033[0m({operator.friendly_name}): version: \033[92m{operator.version}\033[0m, channel: \033[92m{operator.channel}')
         
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
-    def __init__(self, operators, catalog_source_ns, target_ns):
-        self._operators = operators
+    def __init__(self, catsrc_ns, target_ns):
+        self._operators_map = Operators.operators_map
         self._file_list = []
         self._download_folder = '.ibm-pak'
-        self._catalog_sources_prefix = 'catalog-sources'
-        self._catalog_source_ns = catalog_source_ns
+        self._catsrc_file_prefix = 'catalog-sources'
+        self._catsrc_ns = catsrc_ns
         self._target_ns = target_ns
 
     def download_and_prepare(self):
@@ -120,13 +127,13 @@ class SubscriptionHandler:
             shutil.rmtree(self._download_folder)
         except:
             pass
-        for name, operator in self._operators.items():
+        for name, operator in self._operators_map.items():
             click.secho(f'\nDownloading {operator.name}...', fg='green')
             proc = subprocess.run(operator.command, shell=True)
 
         # Locate all downloaded file_name(s) under the specified directory
         self._file_list = [os.path.join(root, file) for root, dirs, files in os.walk(
-            self._download_folder) for file in files if file.startswith(self._catalog_sources_prefix)]
+            self._download_folder) for file in files if file.startswith(self._catsrc_file_prefix)]
             
         catalog_sources = []
         click.secho('\nStripping namespace from all catalog-sources yaml files:', fg='green')
@@ -142,23 +149,23 @@ class SubscriptionHandler:
                         catalog_sources.append(line.split(':')[1].strip())
             click.secho(f'   {file_path}')
         
-        for name in self._operators.keys():
+        for name in self._operators_map.keys():
             for catalog in catalog_sources:
                 if name.split('-')[1] in catalog:
-                    self._operators.get(name).catalog_source_name = catalog
+                    self._operators_map.get(name).catalog_source_name = catalog
     
     def apply_catalog_sources(self):
         click.secho('\nApplying catalog sources...', fg='green')
         self.handle_namespaces()
         oc_commands = []
         for file in self._file_list:
-            oc_commands.append(f'oc apply -n {self._catalog_source_ns} -f {file}')
+            oc_commands.append(f'oc apply -n {self._catsrc_ns} -f {file}')
         Utils.run_commands(oc_commands)
 
     def apply_subscriptions(self):
         click.secho('\nApplying subscriptions...', fg='green')
         oc_commands = []
-        for name, operator in self._operators.items():
+        for name, operator in self._operators_map.items():
             sub = f'''apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -167,7 +174,7 @@ spec:
   channel: {operator.channel}
   name: {operator.name} 
   source: {operator.catalog_source_name}
-  sourceNamespace: {self._catalog_source_ns}
+  sourceNamespace: {self._catsrc_ns}
 ''' 
             filename = 'subscription-' + operator.name + '.yaml'
             click.secho(
@@ -177,7 +184,7 @@ spec:
                 file.write(sub)
                 oc_commands.append(f'oc apply -n {self._target_ns} -f {filename}')
 
-        # Workarround to put at the end failing subscriptiions that cause other subscriptions to fail as well
+        # Workarround to put at the end failing subscriptions that cause other subscriptions to fail as well
         # TODO investigate the failures.
         for s in 'ibm-integration-asset-repository', 'ibm-aspera-hsts-operator':
             for i, v in enumerate(oc_commands):
@@ -186,7 +193,7 @@ spec:
 
 
     def handle_namespaces(self):
-        namespaces = [ self._catalog_source_ns, self._target_ns ]
+        namespaces = [ self._catsrc_ns, self._target_ns ]
         namespaces = list(set(namespaces)) # remove duplicates
         namespace_to_create = []
         for ns in namespaces:
@@ -249,7 +256,7 @@ class Utils:
         for cmd in oc_commands:
                 proc = subprocess.run(cmd, shell=True)
                 if delay > 0: 
-                    click.secho(f'Requested to sleep for {delay} seconds {extra_message}...', fg='green')
+                    click.secho(f'Sleeping {delay} seconds {extra_message}...', fg='green')
                     time.sleep(delay)
         print('')
 
@@ -262,7 +269,7 @@ def main():
 @click.option('--list', is_flag=True, help='List all operators and versions')
 @click.option('--namespaced', is_flag=True, default=False, help='(Experimental) If set the catalogsources will be applied to target_ns')
 @click.option('--target_ns', default='openshift-operators', help='The namespace to deploy the operator subscriptons (default: openshift-operators, i.e. All Namespaces)')
-@click.option('--operator', '-o', multiple=True, default=['all'], help='operator to apply (default: all)')
+@click.option('--operator', '-o', multiple=True, default=['all'], help='Operator to apply (default: all)')
 @click.option('--noninteractive', is_flag=True, default=False, help='Do not ask for user confirmation and apply the changes')
 
 def deploy_operators(version, namespaced, target_ns, operator, list, noninteractive):
@@ -274,19 +281,20 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
         operator_handler.print()
         
         if list is True: sys.exit(0)
+
         operator_handler.filter(operator)
 
-        catalog_source_ns = 'openshift-marketplace'
+        catsrc_ns = 'openshift-marketplace'
         if namespaced is True:
-            catalog_source_ns = target_ns
-        if catalog_source_ns == 'openshift-operators':
+            catsrc_ns = target_ns
+        if catsrc_ns == 'openshift-operators':
             click.secho('You specified --namespaced but, but you did not specify --target_ns. Refusing to continue\n', fg='red')
             sys.exit(2)
         
         click.secho('\nWill deploy following operators: ')
-        click.secho('   ' + '\n   '.join(operator_handler.get_operators().keys()), fg='green')
+        click.secho('   ' + '\n   '.join(Operators.operators_map.keys()), fg='green')
         click.secho(f'\nCatalog sources will be applied in: ', nl=False)
-        click.secho(catalog_source_ns, fg='red' if catalog_source_ns != 'openshift-marketplace' else 'green')
+        click.secho(catsrc_ns, fg='red' if catsrc_ns != 'openshift-marketplace' else 'green')
         click.secho(f'Operators will be deployed in: ', nl=False)
         click.secho(target_ns + '\n', fg='green')
 
@@ -295,10 +303,10 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
             input()
 
         Utils.sanity_check()
-        sub_handler = SubscriptionHandler(operator_handler.get_operators(), catalog_source_ns, target_ns)
-        sub_handler.download_and_prepare()
-        sub_handler.apply_catalog_sources()
-        sub_handler.apply_subscriptions()
+        subs_handler = SubscriptionHandler(catsrc_ns, target_ns)
+        subs_handler.download_and_prepare()
+        subs_handler.apply_catalog_sources()
+        subs_handler.apply_subscriptions()
 
     except Exception as e:
         click.secho(f'\nError: {e}\n', fg='red')
