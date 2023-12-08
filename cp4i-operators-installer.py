@@ -49,7 +49,6 @@ class Operators: # singleton holding a map of operators
 
 class OperatorHandler:
     def __init__(self, version):
-        self._operators_map = Operators().operators_map
         self.version = version
     
     def populate(self):
@@ -81,7 +80,7 @@ class OperatorHandler:
 
             # change the map key from operator.friendly_name to operator.name
             for friendly_name, operator in tmp_operators.items():
-                self._operators_map[operator.name] = operator
+                Operators().operators_map[operator.name] = operator
         except Exception as e:
             raise Exception(f'Is version {self.version} valid?, {e}')
 
@@ -91,27 +90,26 @@ class OperatorHandler:
         else: 
             filtered_operators = {}
             for name in selection:
-                operator = self._operators_map.get(name)
+                operator = Operators().operators_map.get(name)
                 if operator is None: raise Exception(f"Operator '{name}' is not a valid operator name")
                 filtered_operators[name] = operator
-            self._operators_map = filtered_operators
+            Operators.operators_map = filtered_operators
         
         # datapower comes with ibm-apiconnect and if both specified, datapower fails
-        if self._operators_map.get("ibm-apiconnect") is not None: 
-            self._operators_map.pop("ibm-datapower-operator")
+        if Operators().operators_map.get("ibm-apiconnect") is not None: 
+            Operators().operators_map.pop("ibm-datapower-operator")
         # remove common-services as it comes with CP4I
-        self._operators_map.pop("ibm-cp-common-services")
+        Operators().operators_map.pop("ibm-cp-common-services", None)
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')    
-        for name, operator in self._operators_map.items():
+        for name, operator in Operators().operators_map.items():
             click.secho(f'\033[92m{operator.name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
     def __init__(self, catsrc_ns, target_ns):
-        self._operators_map = Operators.operators_map
         self._file_list = []
         self._download_folder = '.ibm-pak'
         self._catsrc_file_prefix = 'catalog-sources'
@@ -125,7 +123,7 @@ class SubscriptionHandler:
             shutil.rmtree(self._download_folder)
         except:
             pass
-        for name, operator in self._operators_map.items():
+        for name, operator in Operators().operators_map.items():
             click.secho(f'\nDownloading {operator.name}...', fg='green')
             proc = subprocess.run(operator.command, shell=True)
 
@@ -147,10 +145,10 @@ class SubscriptionHandler:
                         catalog_sources.append(line.split(':')[1].strip())
             click.secho(f'   {file_path}')
         
-        for name in self._operators_map.keys():
+        for name in Operators().operators_map.keys():
             for catalog in catalog_sources:
                 if name.split('-')[1] in catalog:
-                    self._operators_map.get(name).catsrc_name = catalog
+                    Operators().operators_map.get(name).catsrc_name = catalog
     
     def apply_catalog_sources(self):
         click.secho('\nApplying catalog sources...', fg='green')
@@ -163,7 +161,7 @@ class SubscriptionHandler:
     def apply_subscriptions(self):
         click.secho('\nApplying subscriptions...', fg='green')
         oc_commands = []
-        for name, operator in self._operators_map.items():
+        for name, operator in Operators().operators_map.items():
             sub = f'''apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
