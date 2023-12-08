@@ -20,6 +20,7 @@ class Operator:
         self.channel = None
         self.case_version = None
         self.catsrc_name = None
+        self.catsrc_files = []
 
         pattern = r'export CASE_NAME=([^\s]+)'
         match = re.search(pattern, self.command)
@@ -33,14 +34,15 @@ class Operator:
     def print(self):
         print(f'''
                 name: {self.name}
-                friendly_name: {self.friendly_name}
-                version: {self.case_version}
-                channel: {self.channel}
-                catalog_source_name: {self.catsrc_name}
-                command: {self.command}''')
+       friendly_name: {self.friendly_name}
+             version: {self.case_version}
+             channel: {self.channel}
+         catsrc_name: {self.catsrc_name}
+	    catsrc_files: {self.catsrc_files}
+             command: {self.command}''')
 
 class Operators: # singleton holding a map of operators
-    operators_map = {}
+    map = {}
     def __new__(cls):
         if not hasattr(cls, '_instance'):
             cls._instance = super(Operators, cls).__new__(cls)
@@ -80,7 +82,7 @@ class OperatorHandler:
 
             # change the map key from operator.friendly_name to operator.name
             for friendly_name, operator in tmp_operators.items():
-                Operators().operators_map[operator.name] = operator
+                Operators().map[operator.name] = operator
         except Exception as e:
             raise Exception(f'Is version {self.version} valid?, {e}')
 
@@ -90,27 +92,26 @@ class OperatorHandler:
         else: 
             filtered_operators = {}
             for name in selection:
-                operator = Operators().operators_map.get(name)
+                operator = Operators().map.get(name)
                 if operator is None: raise Exception(f"Operator '{name}' is not a valid operator name")
                 filtered_operators[name] = operator
-            Operators.operators_map = filtered_operators
+            Operators.map = filtered_operators
         
         # datapower comes with ibm-apiconnect and if both specified, datapower fails
-        if Operators().operators_map.get("ibm-apiconnect") is not None: 
-            Operators().operators_map.pop("ibm-datapower-operator")
+        if Operators().map.get("ibm-apiconnect") is not None: 
+            Operators().map.pop("ibm-datapower-operator")
         # remove common-services as it comes with CP4I
-        Operators().operators_map.pop("ibm-cp-common-services", None)
+        Operators().map.pop("ibm-cp-common-services", None)
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')    
-        for name, operator in Operators().operators_map.items():
+        for name, operator in Operators().map.items():
             click.secho(f'\033[92m{operator.name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
     def __init__(self, catsrc_ns, target_ns):
-        self._file_list = []
         self._download_folder = '.ibm-pak'
         self._catsrc_file_prefix = 'catalog-sources'
         self._catsrc_ns = catsrc_ns
@@ -123,45 +124,45 @@ class SubscriptionHandler:
             shutil.rmtree(self._download_folder)
         except:
             pass
-        for name, operator in Operators().operators_map.items():
+        for operator_name, operator in Operators().map.items():
             click.secho(f'\nDownloading {operator.name}...', fg='green')
             proc = subprocess.run(operator.command, shell=True)
-
-        # Locate all downloaded file_name(s) under the specified directory
-        self._file_list = [os.path.join(root, file) for root, dirs, files in os.walk(
-            self._download_folder) for file in files if file.startswith(self._catsrc_file_prefix)]
+            operator.catsrc_files = [ os.path.join(root,file) 
+                                     for root, dirs, files in os.walk(f'{self._download_folder}/data/mirror/{operator_name}') 
+                                      for file in files if file.startswith("catalog-sources") 
+                                  ]
             
-        catalog_sources = []
-        click.secho('\nStripping namespace from all catalog-sources yaml files:', fg='green')
-        for file_path in self._file_list:
-            with fileinput.FileInput(file_path, inplace=True) as file:
-                # Iterate through each line in the file
-                for line in file:
-                    # Remove lines starting with 'namespace:' (ignoring leading spaces)
-                    if not line.lstrip().startswith('namespace:'):
-                        print(line, end='')
-                    # Get the catalog source name to be later used to bind the subscription
-                    if line.lstrip().startswith('name:'):
-                        catalog_sources.append(line.split(':')[1].strip())
-            click.secho(f'   {file_path}')
-        
-        for name in Operators().operators_map.keys():
+            catalog_sources = []
+            
+            for file_path in operator.catsrc_files:
+                with fileinput.FileInput(file_path, inplace=True) as file:
+                    # Iterate through each line in the file
+                    for line in file:
+                        # Remove lines starting with 'namespace:' (ignoring leading spaces)
+                        if not line.lstrip().startswith('namespace:'):
+                            print(line, end='')
+                        # Get the catalog source name to be later used to bind the subscription
+                        if line.lstrip().startswith('name:'):
+                            catalog_sources.append(line.split(':')[1].strip())
+                click.secho(f'Downloaded and stripped namespace from catalog-sources yaml file {file_path}', fg='green')
+
             for catalog in catalog_sources:
-                if name.split('-')[1] in catalog:
-                    Operators().operators_map.get(name).catsrc_name = catalog
+                if operator_name.split('-')[1] in catalog:
+                    operator.catsrc_name = catalog
     
     def apply_catalog_sources(self):
         click.secho('\nApplying catalog sources...', fg='green')
         self.handle_namespaces()
         oc_commands = []
-        for file in self._file_list:
-            oc_commands.append(f'oc apply -n {self._catsrc_ns} -f {file}')
+        for operator in Operators.map.values():
+            for file in operator.catsrc_files:
+                oc_commands.append(f'oc apply -n {self._catsrc_ns} -f {file}')
         Utils.run_commands(oc_commands)
 
     def apply_subscriptions(self):
         click.secho('\nApplying subscriptions...', fg='green')
         oc_commands = []
-        for name, operator in Operators().operators_map.items():
+        for name, operator in Operators().map.items():
             sub = f'''apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -288,7 +289,7 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
             sys.exit(2)
         
         click.secho('\nWill deploy following operators: ')
-        click.secho('   ' + '\n   '.join(Operators.operators_map.keys()), fg='green')
+        click.secho('   ' + '\n   '.join(Operators.map.keys()), fg='green')
         click.secho(f'\nCatalog sources will be applied in: ', nl=False)
         click.secho(catsrc_ns, fg='red' if catsrc_ns != 'openshift-marketplace' else 'green')
         click.secho(f'Operators will be deployed in: ', nl=False)
