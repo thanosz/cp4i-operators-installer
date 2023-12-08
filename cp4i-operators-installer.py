@@ -38,11 +38,18 @@ class Operator:
              version: {self.case_version}
              channel: {self.channel}
          catsrc_name: {self.catsrc_name}
-	    catsrc_files: {self.catsrc_files}
+        catsrc_files: {self.catsrc_files}
              command: {self.command}''')
 
 class Operators: # singleton holding a map of operators
-    map = {}
+    _map = {}
+
+    def map(self):
+        return self._map
+    
+    def set(self, map):
+        self._map = map
+    
     def __new__(cls):
         if not hasattr(cls, '_instance'):
             cls._instance = super(Operators, cls).__new__(cls)
@@ -82,31 +89,31 @@ class OperatorHandler:
 
             # change the map key from operator.friendly_name to operator.name
             for friendly_name, operator in tmp_operators.items():
-                Operators().map[operator.name] = operator
+                Operators().map()[operator.name] = operator
         except Exception as e:
             raise Exception(f'Is version {self.version} valid?, {e}')
 
     def filter(self, selection):
         if 'all' in selection: 
-            click.secho('\nHINT: You can install individual operators by using -c flag mutliple times') 
+            click.secho('\nHINT: You can install individual operators by using -o flag mutliple times') 
         else: 
             filtered_operators = {}
             for name in selection:
-                operator = Operators().map.get(name)
+                operator = Operators().map().get(name)
                 if operator is None: raise Exception(f"Operator '{name}' is not a valid operator name")
                 filtered_operators[name] = operator
-            Operators.map = filtered_operators
+            Operators().set(filtered_operators)
         
         # datapower comes with ibm-apiconnect and if both specified, datapower fails
-        if Operators().map.get("ibm-apiconnect") is not None: 
-            Operators().map.pop("ibm-datapower-operator")
+        if Operators().map().get("ibm-apiconnect") is not None: 
+            Operators().map().pop("ibm-datapower-operator")
         # remove common-services as it comes with CP4I
-        Operators().map.pop("ibm-cp-common-services", None)
+        Operators().map().pop("ibm-cp-common-services", None)
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')    
-        for name, operator in Operators().map.items():
+        for name, operator in Operators().map().items():
             click.secho(f'\033[92m{operator.name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
 
@@ -124,16 +131,15 @@ class SubscriptionHandler:
             shutil.rmtree(self._download_folder)
         except:
             pass
-        for operator_name, operator in Operators().map.items():
+        for operator_name, operator in Operators().map().items():
             click.secho(f'\nDownloading {operator.name}...', fg='green')
             proc = subprocess.run(operator.command, shell=True)
             operator.catsrc_files = [ os.path.join(root,file) 
-                                     for root, dirs, files in os.walk(f'{self._download_folder}/data/mirror/{operator_name}') 
-                                      for file in files if file.startswith("catalog-sources") 
+                                     for root, dirs, files in os.walk(os.path.join(self._download_folder, "data", "mirror", operator_name)) 
+                                      for file in files if file.startswith(self._catsrc_file_prefix) 
                                   ]
             
             catalog_sources = []
-            
             for file_path in operator.catsrc_files:
                 with fileinput.FileInput(file_path, inplace=True) as file:
                     # Iterate through each line in the file
@@ -154,7 +160,7 @@ class SubscriptionHandler:
         click.secho('\nApplying catalog sources...', fg='green')
         self.handle_namespaces()
         oc_commands = []
-        for operator in Operators.map.values():
+        for operator in Operators().map().values():
             for file in operator.catsrc_files:
                 oc_commands.append(f'oc apply -n {self._catsrc_ns} -f {file}')
         Utils.run_commands(oc_commands)
@@ -162,7 +168,7 @@ class SubscriptionHandler:
     def apply_subscriptions(self):
         click.secho('\nApplying subscriptions...', fg='green')
         oc_commands = []
-        for name, operator in Operators().map.items():
+        for operator in Operators().map().values():
             sub = f'''apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -227,7 +233,7 @@ class Utils:
   
         click.secho('   Checking oc is logged-in...', fg='green')
         if subprocess.run(['oc', 'cluster-info'], stdout=subprocess.DEVNULL).returncode != 0:
-            raise Exception ('oc is not logged-in. Make sure you are loggged-in to the correct cluster')
+            raise Exception ('oc is not logged-in. Make sure you are logged-in to the correct cluster')
         
         click.secho('   Checking ibm-pak is installed...', fg='green')
         if subprocess.run(['oc', 'ibm-pak'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT).returncode != 0:
@@ -264,9 +270,9 @@ def main():
 @main.command('deploy-operators', short_help='Connects to CP4I IBM documentation, downloads CASE files, installs catalog sources and operators in the requested namespaces and applies the OperatorGroup resource')
 @click.option('--version', help='The CP4I version, e.g. 2023.2', required=True)
 @click.option('--list', is_flag=True, help='List all operators and versions')
-@click.option('--namespaced', is_flag=True, default=False, help='(Experimental) If set the catalogsources will be applied to target_ns')
+@click.option('--namespaced', is_flag=True, default=False, help='(Experimental) If set the catalogsources will be applied to target_ns (for testing only)')
 @click.option('--target_ns', default='openshift-operators', help='The namespace to deploy the operator subscriptons (default: openshift-operators, i.e. All Namespaces)')
-@click.option('--operator', '-o', multiple=True, default=['all'], help='Operator to apply (default: all)')
+@click.option('--operator', '-o', multiple=True, default=['all'], help='Operator(s) to apply (default: all)')
 @click.option('--noninteractive', is_flag=True, default=False, help='Do not ask for user confirmation and apply the changes')
 
 def deploy_operators(version, namespaced, target_ns, operator, list, noninteractive):
@@ -276,7 +282,7 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
         operator_handler = OperatorHandler(version)
         operator_handler.populate()
         operator_handler.print()
-        
+    
         if list is True: sys.exit(0)
 
         operator_handler.filter(operator)
@@ -289,7 +295,7 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
             sys.exit(2)
         
         click.secho('\nWill deploy following operators: ')
-        click.secho('   ' + '\n   '.join(Operators.map.keys()), fg='green')
+        click.secho('   ' + '\n   '.join(Operators().map().keys()), fg='green')
         click.secho(f'\nCatalog sources will be applied in: ', nl=False)
         click.secho(catsrc_ns, fg='red' if catsrc_ns != 'openshift-marketplace' else 'green')
         click.secho(f'Operators will be deployed in: ', nl=False)
