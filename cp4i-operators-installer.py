@@ -106,7 +106,7 @@ class OperatorHandler:
         
         # datapower comes with ibm-apiconnect and if both specified, datapower fails
         if Operators().map().get("ibm-apiconnect") is not None: 
-            Operators().map().pop("ibm-datapower-operator")
+            Operators().map().pop("ibm-datapower-operator", None)
         # remove common-services as it comes with CP4I
         Operators().map().pop("ibm-cp-common-services", None)
     
