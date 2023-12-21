@@ -131,11 +131,11 @@ class SubscriptionHandler:
             shutil.rmtree(self._download_folder)
         except:
             pass
-        for operator_name, operator in Operators().map().items():
+        for operator in Operators().map().values():
             click.secho(f'\nDownloading {operator.name}...', fg='green')
             proc = subprocess.run(operator.command, shell=True)
             operator.catsrc_files = [ os.path.join(root,file) 
-                                     for root, dirs, files in os.walk(os.path.join(self._download_folder, "data", "mirror", operator_name)) 
+                                     for root, dirs, files in os.walk(os.path.join(self._download_folder, "data", "mirror", operator.name)) 
                                       for file in files if file.startswith(self._catsrc_file_prefix) 
                                   ]
             
@@ -153,7 +153,7 @@ class SubscriptionHandler:
                 click.secho(f'Downloaded and stripped namespace from catalog-sources yaml file {file_path}', fg='green')
 
             for catalog in catalog_sources:
-                if operator_name.split('-')[1] in catalog:
+                if operator.name.split('-')[1] in catalog:
                     operator.catsrc_name = catalog
     
     def apply_catalog_sources(self):
