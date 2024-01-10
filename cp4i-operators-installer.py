@@ -313,7 +313,7 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
 
     except Exception as e:
         click.secho(f'\nError: {e}\n', fg='red')
-        traceback.print_exc()
+        #traceback.print_exc()
         sys.exit(1)
 
     sys.exit(0)
