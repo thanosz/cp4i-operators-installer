@@ -14,7 +14,7 @@ import time
 
 class Operator:
     def __init__(self, friendly_name, export_command):
-        self.command = export_command + ' && export IBMPAK_HOME=. && oc ibm-pak get $CASE_NAME --version $CASE_VERSION && oc ibm-pak generate mirror-manifests $CASE_NAME icr.io --version $CASE_VERSION'
+        
         self.friendly_name = friendly_name
         self.name = None
         self.channel = None
@@ -22,14 +22,22 @@ class Operator:
         self.catsrc_name = None
         self.catsrc_files = []
 
-        pattern = r'export CASE_NAME=([^\s]+)'
-        match = re.search(pattern, self.command)
-        if match:
-            self.name = match.group(1)
-        pattern = r'export CASE_VERSION=([^\s]+)'
-        match = re.search(pattern, self.command)
-        if match:
-            self.case_version = match.group(1)
+        self.name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
+        self.case_version = self.get_matched_pattern(r'export .*_VERSION=([^\s]+)', export_command)
+        
+        var_name = self.get_matched_pattern(r'\b(\w+_NAME)=', export_command)
+        var_version_name = self.get_matched_pattern(r'\b(\w+_VERSION)=' ,export_command)
+       
+        # construct the command
+        self.command = export_command + f' && export IBMPAK_HOME=. && oc ibm-pak get ${var_name} --version ${var_version_name} && oc ibm-pak generate mirror-manifests ${var_name} icr.io --version ${var_version_name}'
+
+    def get_matched_pattern(self, pattern, input_str):
+         match = re.search(pattern, input_str)
+         if not match:
+             raise(Exception(f'Could not match "{pattern}" for input string "{input_str}"'))
+         return match.group(1)
+             
+
 
     def print(self):
         print(f'''
@@ -74,10 +82,12 @@ class OperatorHandler:
                 export_command = commands_table.iloc[i, 1]
                 operator = Operator(friendly_name, export_command)
                 tmp_operators[friendly_name] = operator
+                #operator.print()
 
             click.secho(f'Connecting to {channel_url}', fg='green')
             # get operator channels from the doc page
-            channels_table = panda.read_html(channel_url, match='Capability name')[0]
+            channels_table = panda.read_html(channel_url, match='Operator channels')[0]
+            #print(channels_table)
             for i in range(0, len(channels_table.index)):
                 friendly_name = channels_table.iloc[i, 1]
                 if type(friendly_name) is not str:
@@ -313,7 +323,7 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
 
     except Exception as e:
         click.secho(f'\nError: {e}\n', fg='red')
-        #traceback.print_exc()
+        traceback.print_exc()
         sys.exit(1)
 
     sys.exit(0)
