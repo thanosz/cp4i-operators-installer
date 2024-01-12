@@ -11,18 +11,20 @@ import sys
 import traceback 
 import time
 
-
 class Operator:
-    def __init__(self, friendly_name, export_command):
+    def __init__(self, friendly_name, literal_name):
         
         self.friendly_name = friendly_name
-        self.name = None
+        self.literal_name = literal_name
         self.channel = None
+        self.case_name = None
         self.case_version = None
         self.catsrc_name = None
         self.catsrc_files = []
+        self.command = None
 
-        self.name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
+    def set_command(self, export_command):
+        self.case_name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
         self.case_version = self.get_matched_pattern(r'export .*_VERSION=([^\s]+)', export_command)
         
         var_name = self.get_matched_pattern(r'\b(\w+_NAME)=', export_command)
@@ -37,11 +39,9 @@ class Operator:
              raise(Exception(f'Could not match "{pattern}" for input string "{input_str}"'))
          return match.group(1)
              
-
-
     def print(self):
         print(f'''
-                name: {self.name}
+                name: {self.literal_name}
        friendly_name: {self.friendly_name}
              version: {self.case_version}
              channel: {self.channel}
@@ -71,17 +71,31 @@ class OperatorHandler:
     def populate(self):
         command_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
         channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
+        operator_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
 
         tmp_operators = {}
         try:
-            click.secho(f'\nConnecting to {command_url}', fg='green')
+
+            click.echo()
+            click.secho(f'Connecting to {operator_url}', fg='green')
+            # get operator channels from the doc page
+            installing_table = panda.read_html(operator_url, match='Operator name')[0]
+            for i in range(0, len(installing_table.index)):
+                friendly_name = installing_table.iloc[i, 0]
+                literal_name = installing_table.iloc[i, 1]
+                operator = Operator(friendly_name, literal_name)
+                tmp_operators[friendly_name] = operator
+
+
+            click.secho(f'Connecting to {command_url}', fg='green')
             # get operator details from the doc page
             commands_table = panda.read_html(command_url, match='Export commands')[0]
             for i in range(0, len(commands_table.index)):
                 friendly_name = commands_table.iloc[i, 0]
                 export_command = commands_table.iloc[i, 1]
-                operator = Operator(friendly_name, export_command)
-                tmp_operators[friendly_name] = operator
+                operator = tmp_operators.get(friendly_name)
+                if operator:
+                    operator.set_command(export_command)
                 #operator.print()
 
             click.secho(f'Connecting to {channel_url}', fg='green')
@@ -96,10 +110,12 @@ class OperatorHandler:
                 operator = tmp_operators.get(friendly_name)
                 if operator is not None:
                     operator.channel = channel
-
-            # change the map key from operator.friendly_name to operator.name
+            
+            # change the map key from operator.friendly_name to operator.literal_name
             for friendly_name, operator in tmp_operators.items():
-                Operators().map()[operator.name] = operator
+                if operator.case_version is not None:
+                    Operators().map()[operator.literal_name] = operator
+                #operator.print()
         except Exception as e:
             raise Exception(f'Is version {self.version} valid?, {e}')
 
@@ -116,15 +132,18 @@ class OperatorHandler:
         
         # datapower comes with ibm-apiconnect and if both specified, datapower fails
         if Operators().map().get("ibm-apiconnect") is not None: 
-            Operators().map().pop("ibm-datapower-operator", None)
+            Operators().map().pop("datapower-operator", None)
+        if Operators().map().get("ibm-eventstreams") is not None: 
+            Operators().map().pop("ibm-eem-operator", None)
+        
         # remove common-services as it comes with CP4I
-        Operators().map().pop("ibm-cp-common-services", None)
+        #Operators().map().pop("ibm-cp-common-services", None)
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')    
         for name, operator in Operators().map().items():
-            click.secho(f'\033[92m{operator.name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
+            click.secho(f'\033[92m{operator.literal_name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
@@ -142,10 +161,10 @@ class SubscriptionHandler:
         except:
             pass
         for operator in Operators().map().values():
-            click.secho(f'\nDownloading {operator.name}...', fg='green')
+            click.secho(f'\nDownloading {operator.literal_name}...', fg='green')
             proc = subprocess.run(operator.command, shell=True)
             operator.catsrc_files = [ os.path.join(root,file) 
-                                     for root, dirs, files in os.walk(os.path.join(self._download_folder, "data", "mirror", operator.name)) 
+                                     for root, dirs, files in os.walk(os.path.join(self._download_folder, "data", "mirror", operator.case_name)) 
                                       for file in files if file.startswith(self._catsrc_file_prefix) 
                                   ]
             
@@ -162,9 +181,21 @@ class SubscriptionHandler:
                             catalog_sources.append(line.split(':')[1].strip())
                 click.secho(f'Downloaded and stripped namespace from catalog-sources yaml file {file_path}', fg='green')
 
-            for catalog in catalog_sources:
-                if operator.name.split('-')[1] in catalog:
-                    operator.catsrc_name = catalog
+            search_items = operator.case_name.replace('ibm','').replace('operator','').split('-')
+            while('' in search_items): search_items.remove('')
+            #print(search_items)
+            for item in search_items:
+                _break = False
+                for catalog in catalog_sources:
+                    #print(f'===> item: {item} catalog: {catalog}')
+                    if item in catalog:
+                        operator.catsrc_name = catalog
+                        _break = True
+                        break
+                    if _break: break
+            if operator.catsrc_name is None:
+                operator.catsrc_name = 'opencloud-operators'           
+            #operator.print()
     
     def apply_catalog_sources(self):
         click.secho('\nApplying catalog sources...', fg='green')
@@ -182,16 +213,16 @@ class SubscriptionHandler:
             sub = f'''apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: {operator.name} 
+  name: {operator.literal_name} 
 spec:
   channel: {operator.channel}
-  name: {operator.name} 
+  name: {operator.literal_name} 
   source: {operator.catsrc_name}
   sourceNamespace: {self._catsrc_ns}
 ''' 
-            filename = 'subscription-' + operator.name + '.yaml'
+            filename = 'subscription-' + operator.literal_name + '.yaml'
             click.secho(
-                f'\nSubscription for {operator.name} will be written to {filename}: ', fg='green')
+                f'\nSubscription for {operator.literal_name} will be written to {filename}: ', fg='green')
             click.secho(f'{sub}')
             with open(filename, 'w') as file:
                 file.write(sub)
