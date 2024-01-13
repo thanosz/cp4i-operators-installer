@@ -11,7 +11,8 @@ import sys
 import traceback 
 import time
 
-class Operator:
+class Operator: 
+    # Class to hold the Operator attributes.
     def __init__(self, friendly_name, literal_name):
         
         self.friendly_name = friendly_name
@@ -49,7 +50,8 @@ class Operator:
         catsrc_files: {self.catsrc_files}
              command: {self.command}''')
 
-class Operators: # singleton holding a map of operators
+class Operators: 
+    # Singleton holding a map of operators
     _map = {}
 
     def map(self):
@@ -65,21 +67,24 @@ class Operators: # singleton holding a map of operators
 
 
 class OperatorHandler:
+    # OperatorHandler will connect to online documentation pages and dicover the operator name (frindely - long name), 
+    # the literal name (the actual operator name) and the CASE operator name (might differ from the literal name) and the CASE Versions.
+    # It will then instantiate operator objects and add them to the Operators Map.
     def __init__(self, version):
         self.version = version
     
     def populate(self):
-        command_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
-        channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
-        operator_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
+        case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
+        operator_channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
+        literal_operator_name_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
 
         tmp_operators = {}
         try:
 
             click.echo()
-            click.secho(f'Connecting to {operator_url}', fg='green')
-            # get operator channels from the doc page
-            installing_table = panda.read_html(operator_url, match='Operator name')[0]
+            click.secho(f'Connecting to {literal_operator_name_url}', fg='green')
+            # get operator literal names from the table in the doc page
+            installing_table = panda.read_html(literal_operator_name_url, match='Operator name')[0]
             for i in range(0, len(installing_table.index)):
                 friendly_name = installing_table.iloc[i, 0]
                 literal_name = installing_table.iloc[i, 1]
@@ -87,9 +92,9 @@ class OperatorHandler:
                 tmp_operators[friendly_name] = operator
 
 
-            click.secho(f'Connecting to {command_url}', fg='green')
-            # get operator details from the doc page
-            commands_table = panda.read_html(command_url, match='Export commands')[0]
+            click.secho(f'Connecting to {case_commands_url}', fg='green')
+            # get operator case commands 
+            commands_table = panda.read_html(case_commands_url, match='Export commands')[0]
             for i in range(0, len(commands_table.index)):
                 friendly_name = commands_table.iloc[i, 0]
                 export_command = commands_table.iloc[i, 1]
@@ -98,9 +103,9 @@ class OperatorHandler:
                     operator.set_command(export_command)
                 #operator.print()
 
-            click.secho(f'Connecting to {channel_url}', fg='green')
-            # get operator channels from the doc page
-            channels_table = panda.read_html(channel_url, match='Operator channels')[0]
+            click.secho(f'Connecting to {operator_channel_url}', fg='green')
+            # get operator channels 
+            channels_table = panda.read_html(operator_channel_url, match='Operator channels')[0]
             #print(channels_table)
             for i in range(0, len(channels_table.index)):
                 friendly_name = channels_table.iloc[i, 1]
@@ -135,9 +140,6 @@ class OperatorHandler:
             Operators().map().pop("datapower-operator", None)
         if Operators().map().get("ibm-eventstreams") is not None: 
             Operators().map().pop("ibm-eem-operator", None)
-        
-        # remove common-services as it comes with CP4I
-        #Operators().map().pop("ibm-cp-common-services", None)
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
@@ -147,6 +149,11 @@ class OperatorHandler:
         click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
+    # SubscriptionHandler runs the commands according to the documentation for downloading the catalog sources for each operator
+    # It will strip the namespace from the cataog sources and update the operator object with the name of the instance of the catalog
+    # source for the specific operator.
+    # It creates and applies the OperatorGroup resource if the user requested the installation of operators in a specific namespace
+    # It generates and applies the operator subscriptions
     def __init__(self, catsrc_ns, target_ns):
         self._download_folder = '.ibm-pak'
         self._catsrc_file_prefix = 'catalog-sources'
@@ -228,13 +235,7 @@ spec:
                 file.write(sub)
                 oc_commands.append(f'oc apply -n {self._target_ns} -f {filename}')
 
-        # Workarround to put at the end failing subscriptions that cause other subscriptions to fail as well
-        # TODO investigate the failures.
-        for s in 'ibm-integration-asset-repository', 'ibm-aspera-hsts-operator':
-            for i, v in enumerate(oc_commands):
-                if s in v: oc_commands.append(oc_commands.pop(i))
         Utils.run_commands(oc_commands, delay=60, extra_message='for the subscription to settle')
-
 
     def handle_namespaces(self):
         namespaces = [ self._catsrc_ns, self._target_ns ]
