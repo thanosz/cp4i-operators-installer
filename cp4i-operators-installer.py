@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 
 import pandas as panda
 import click
@@ -14,7 +14,6 @@ import time
 class Operator: 
     # Class to hold the Operator attributes.
     def __init__(self, friendly_name, literal_name):
-        
         self.friendly_name = friendly_name
         self.literal_name = literal_name
         self.channel = None
@@ -42,9 +41,11 @@ class Operator:
              
     def print(self):
         print(f'''
-                name: {self.literal_name}
+        
+        literal_name: {self.literal_name}
        friendly_name: {self.friendly_name}
-             version: {self.case_version}
+           case_name: {self.case_name}
+        case_version: {self.case_version}
              channel: {self.channel}
          catsrc_name: {self.catsrc_name}
         catsrc_files: {self.catsrc_files}
@@ -67,9 +68,9 @@ class Operators:
 
 
 class OperatorHandler:
-    # OperatorHandler will connect to online documentation pages and dicover the operator name (frindely - long name), 
-    # the literal name (the actual operator name) and the CASE operator name (might differ from the literal name) and the CASE Versions.
-    # It will then instantiate operator objects and add them to the Operators Map.
+    # Connects to online documentation pages and discover the operator name (friendly - long name), the
+    #   literal name (the actual operator name) and the CASE operator name (might differ from the literal name) and the CASE Versions.
+    # Instantiate operator objects and add them to the Operators Map.
     def __init__(self, version):
         self.version = version
     
@@ -96,7 +97,7 @@ class OperatorHandler:
             # get operator case commands 
             commands_table = panda.read_html(case_commands_url, match='Export commands')[0]
             for i in range(0, len(commands_table.index)):
-                friendly_name = commands_table.iloc[i, 0]
+                friendly_name = (commands_table.iloc[i, 0]).replace(' (1)', '') # in 2023.4 the Cert manager appears like 'IBM Cert Manager (1)'
                 export_command = commands_table.iloc[i, 1]
                 operator = tmp_operators.get(friendly_name)
                 if operator:
@@ -143,17 +144,16 @@ class OperatorHandler:
     
     def print(self):
         click.secho(f'\nOperators for CP4I version {self.version}', fg='green')
-        click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')    
+        click.secho('-------------------------------------------------------------------------------------------------------------------', fg='green')    
         for name, operator in Operators().map().items():
             click.secho(f'\033[92m{operator.literal_name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
-        click.secho('---------------------------------------------------------------------------------------------------------------------------', fg='green')
+        click.secho('------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
     # SubscriptionHandler runs the commands according to the documentation for downloading the catalog sources for each operator
-    # It will strip the namespace from the cataog sources and update the operator object with the name of the instance of the catalog
-    # source for the specific operator.
-    # It creates and applies the OperatorGroup resource if the user requested the installation of operators in a specific namespace
-    # It generates and applies the operator subscriptions
+    # Strip the namespace from the cataog sources and record the catalog source name in the respective operator object
+    # Creates and applies the OperatorGroup resource if the user requested the installation of operators in a specific namespace
+    # Generates and applies the operator subscriptions files
     def __init__(self, catsrc_ns, target_ns):
         self._download_folder = '.ibm-pak'
         self._catsrc_file_prefix = 'catalog-sources'
@@ -264,7 +264,6 @@ spec:
                 file.write(content)
             Utils.run_commands([f'oc apply -n {self._target_ns} -f {filename}'])
 
-    
 class Utils:
     non_interactive = False
     def sanity_check():
@@ -309,15 +308,15 @@ class Utils:
 def main():
     return True
 
-@main.command('deploy-operators', short_help='Connects to CP4I IBM documentation, downloads CASE files, installs catalog sources and operators in the requested namespaces and applies the OperatorGroup resource')
-@click.option('--version', help='The CP4I version, e.g. 2023.2', required=True)
+@main.command('deploy', short_help='Connects to CP4I IBM documentation, downloads CASE files, installs catalog sources and operators in the requested namespaces and applies the OperatorGroup resource')
+@click.option('--version', '-v', help='The CP4I version, e.g. 2023.2', required=True)
 @click.option('--list', is_flag=True, help='List all operators and versions')
 @click.option('--namespaced', is_flag=True, default=False, help='(Experimental) If set the catalogsources will be applied to target_ns (for testing only)')
 @click.option('--target_ns', default='openshift-operators', help='The namespace to deploy the operator subscriptons (default: openshift-operators, i.e. All Namespaces)')
 @click.option('--operator', '-o', multiple=True, default=['all'], help='Operator(s) to apply (default: all)')
 @click.option('--noninteractive', is_flag=True, default=False, help='Do not ask for user confirmation and apply the changes')
 
-def deploy_operators(version, namespaced, target_ns, operator, list, noninteractive):
+def deploy(version, namespaced, target_ns, operator, list, noninteractive):
     
     try:
         Utils.non_interactive = noninteractive
@@ -326,7 +325,7 @@ def deploy_operators(version, namespaced, target_ns, operator, list, noninteract
         operator_handler.print()
     
         if list is True: sys.exit(0)
-
+        
         operator_handler.filter(operator)
 
         catsrc_ns = 'openshift-marketplace'
