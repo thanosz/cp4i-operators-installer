@@ -235,7 +235,7 @@ spec:
                 file.write(sub)
                 oc_commands.append(f'oc apply -n {self._target_ns} -f {filename}')
 
-        Utils.run_commands(oc_commands, delay=60, extra_message='for the subscription to settle')
+        Utils.run_commands(oc_commands, delay=10, extra_message='for the subscription to settle')
 
     def handle_namespaces(self):
         namespaces = [ self._catsrc_ns, self._target_ns ]
