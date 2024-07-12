@@ -77,6 +77,7 @@ class OperatorHandler:
     def populate(self):
         case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
         operator_channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
+        operator_channel_url_alternative = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-instance-versions-this-release'
         literal_operator_name_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
 
         tmp_operators = {}
@@ -87,7 +88,7 @@ class OperatorHandler:
             # get operator literal names from the table in the doc page
             installing_table = panda.read_html(literal_operator_name_url, match='Operator name')[0]
             for i in range(0, len(installing_table.index)):
-                friendly_name = installing_table.iloc[i, 0]
+                friendly_name = installing_table.iloc[i, 0].replace('*','') # in 16.1.0 there is an asterisk in foundation services
                 literal_name = installing_table.iloc[i, 1]
                 operator = Operator(friendly_name, literal_name)
                 tmp_operators[friendly_name] = operator
@@ -106,7 +107,12 @@ class OperatorHandler:
 
             click.secho(f'Connecting to {operator_channel_url}', fg='green')
             # get operator channels 
-            channels_table = panda.read_html(operator_channel_url, match='Operator channels')[0]
+            try:
+                channels_table = panda.read_html(operator_channel_url, match='Operator channels')[0]
+            except Exception as e:
+                click.secho(f'Connecting to {operator_channel_url_alternative}', fg='green')
+                channels_table = panda.read_html(operator_channel_url_alternative, match='Operator channels')[0]
+                
             #print(channels_table)
             for i in range(0, len(channels_table.index)):
                 friendly_name = channels_table.iloc[i, 1]
@@ -235,7 +241,7 @@ spec:
                 file.write(sub)
                 oc_commands.append(f'oc apply -n {self._target_ns} -f {filename}')
 
-        Utils.run_commands(oc_commands, delay=10, extra_message='for the subscription to settle')
+        Utils.run_commands(oc_commands, delay=30, extra_message='for the subscription to settle')
 
     def handle_namespaces(self):
         namespaces = [ self._catsrc_ns, self._target_ns ]
