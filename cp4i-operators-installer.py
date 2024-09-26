@@ -10,6 +10,8 @@ import fileinput
 import sys
 import traceback 
 import time
+from bs4 import BeautifulSoup
+import requests
 
 class Operator: 
     # Class to hold the Operator attributes.
@@ -24,14 +26,17 @@ class Operator:
         self.command = None
 
     def set_command(self, export_command):
-        self.case_name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
-        self.case_version = self.get_matched_pattern(r'export .*_VERSION=([^\s]+)', export_command)
         
-        var_name = self.get_matched_pattern(r'\b(\w+_NAME)=', export_command)
-        var_version_name = self.get_matched_pattern(r'\b(\w+_VERSION)=' ,export_command)
-       
-        # construct the command
-        self.command = export_command + f' && export IBMPAK_HOME=. && oc ibm-pak get ${var_name} --version ${var_version_name} && oc ibm-pak generate mirror-manifests ${var_name} icr.io --version ${var_version_name}'
+        if 'oc apply' in export_command:
+            # 16.1.0 documentation changed the commands and replaced the use of ibm-pak to directly applying the catsrc from a file in public github
+            # Instead of changing the whole logic of the app, we generate an ibm-pak command as it was previously expected
+            self.case_name = self.get_matched_pattern(r'/([a-zA-Z0-9\-\_]+)/(\d+\.\d+\.\d+)/', export_command)
+            self.case_version = self.get_matched_pattern(r'/(\d+\.\d+\.\d+)/', export_command)
+        else:
+            self.case_name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
+            self.case_version = self.get_matched_pattern(r'export .*_VERSION=([^\s]+)', export_command)
+           
+        self.command = f'export IBMPAK_HOME=. && oc ibm-pak get {self.case_name} --version {self.case_version} && oc ibm-pak generate mirror-manifests {self.case_name} icr.io --version {self.case_version}'
 
     def get_matched_pattern(self, pattern, input_str):
          match = re.search(pattern, input_str)
@@ -75,18 +80,24 @@ class OperatorHandler:
         self.version = version
     
     def populate(self):
+        curl_header = {'User-Agent': 'curl/8.6.0'} # IBM Seems to block evertyhing else 
         case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
         operator_channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
         operator_channel_url_alternative = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-instance-versions-this-release'
         literal_operator_name_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
-
+        
         tmp_operators = {}
         try:
 
             click.echo()
             click.secho(f'Connecting to {literal_operator_name_url}', fg='green')
+    
+            #response = requests.get('https://webcache.googleusercontent.com/search?q=cache:https://www.ibm.com/docs/en/cloud-paks/cp-integration/2023.4?topic=operators-installing-by-using-cli', curl_header=curl_header)
+            #response = requests.get('https://www.ibm.com/docs/en/cloud-paks/cp-integration/2023.4?topic=operators-installing-by-using-cli', curl_header=curl_header)
             # get operator literal names from the table in the doc page
-            installing_table = panda.read_html(literal_operator_name_url, match='Operator name')[0]
+            
+        
+            installing_table = panda.read_html(literal_operator_name_url, match='Operator name', storage_options=curl_header)[0]
             for i in range(0, len(installing_table.index)):
                 friendly_name = installing_table.iloc[i, 0].replace('*','') # in 16.1.0 there is an asterisk in foundation services
                 literal_name = installing_table.iloc[i, 1]
@@ -96,22 +107,37 @@ class OperatorHandler:
 
             click.secho(f'Connecting to {case_commands_url}', fg='green')
             # get operator case commands 
-            commands_table = panda.read_html(case_commands_url, match='Export commands')[0]
-            for i in range(0, len(commands_table.index)):
-                friendly_name = (commands_table.iloc[i, 0]).replace(' (1)', '') # in 2023.4 the Cert manager appears like 'IBM Cert Manager (1)'
-                export_command = commands_table.iloc[i, 1]
-                operator = tmp_operators.get(friendly_name)
-                if operator:
-                    operator.set_command(export_command)
-                #operator.print()
+            if self.version.startswith('202'): # for 2023.4, etc
+                commands_table = panda.read_html(case_commands_url, match='ommand', storage_options=curl_header)[0]
+                for i in range(0, len(commands_table.index)):
+                    friendly_name = (commands_table.iloc[i, 0]).replace(' (1)', '') # in 2023.4 the Cert manager appears like 'IBM Cert Manager (1)'
+                    export_command = commands_table.iloc[i, 1]
+                    operator = tmp_operators.get(friendly_name)
+                    if operator:
+                        operator.set_command(export_command)
+            else: # 16.1.0 and later
+                response = requests.get(case_commands_url, headers=curl_header)
+                soup = BeautifulSoup(response.content, 'html.parser')
+                header = soup.find('h2', string='Catalog sources for operators')
+                if header:
+                    ul = header.parent.find('ul')
+                    if ul:
+                        for li in ul.find_all('li'):
+                            result = li.text.split('\n')
+                            friendly_name = result[0]
+                            export_command = result[1]
+                            operator = tmp_operators.get(friendly_name)
+                            if operator:
+                                operator.set_command(export_command)
 
+            #operator.print()
             click.secho(f'Connecting to {operator_channel_url}', fg='green')
             # get operator channels 
             try:
-                channels_table = panda.read_html(operator_channel_url, match='Operator channels')[0]
+                channels_table = panda.read_html(operator_channel_url, match='Operator channels', storage_options=curl_header)[0]
             except Exception as e:
                 click.secho(f'Connecting to {operator_channel_url_alternative}', fg='green')
-                channels_table = panda.read_html(operator_channel_url_alternative, match='Operator channels')[0]
+                channels_table = panda.read_html(operator_channel_url_alternative, match='Operator channels', storage_options=curl_header)[0]
                 
             #print(channels_table)
             for i in range(0, len(channels_table.index)):
@@ -153,6 +179,7 @@ class OperatorHandler:
         click.secho('-------------------------------------------------------------------------------------------------------------------', fg='green')    
         for name, operator in Operators().map().items():
             click.secho(f'\033[92m{operator.literal_name} \033[0m({operator.friendly_name}): CASE version: \033[92m{operator.case_version}\033[0m, channel: \033[92m{operator.channel}')
+            #operator.print()
         click.secho('------------------------------------------------------------------------------------------------------------------', fg='green')
 
 class SubscriptionHandler:
