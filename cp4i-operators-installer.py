@@ -81,7 +81,10 @@ class OperatorHandler:
     
     def populate(self):
         curl_header = {'User-Agent': 'curl/8.6.0'} # IBM Seems to block evertyhing else 
-        case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
+        if self.version.startswith('202'): # for 2023.4, etc
+            case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
+        else:
+            case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-openshift-cluster'
         operator_channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
         operator_channel_url_alternative = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-instance-versions-this-release'
         literal_operator_name_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
@@ -147,6 +150,7 @@ class OperatorHandler:
                 channel = str(channels_table.iloc[i, 2]).split(',').pop()
                 operator = tmp_operators.get(friendly_name)
                 if operator is not None:
+                    channel = channel.replace('*', '').replace(' ','')
                     operator.channel = channel
             
             # change the map key from operator.friendly_name to operator.literal_name
