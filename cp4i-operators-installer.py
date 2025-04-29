@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import pandas as panda
 import click
 import subprocess
 import re
@@ -12,6 +11,8 @@ import traceback
 import time
 from bs4 import BeautifulSoup
 import requests
+import yaml
+
 
 class Operator: 
     # Class to hold the Operator attributes.
@@ -82,9 +83,9 @@ class OperatorHandler:
     def populate(self):
         curl_header = {'User-Agent': 'curl/8.6.0'} # IBM Seems to block evertyhing else 
         if self.version.startswith('202'): # for 2023.4, etc
-            case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-cluster'
-        else:
-            case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-openshift-cluster'
+            raise Exception ('Versions 202x are not supported. Use 202x branch instead')
+       
+        case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-openshift-cluster'
         operator_channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
         operator_channel_url_alternative = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-instance-versions-this-release'
         literal_operator_name_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
@@ -94,65 +95,53 @@ class OperatorHandler:
 
             click.echo()
             click.secho(f'Connecting to {literal_operator_name_url}', fg='green')
-    
-            #response = requests.get('https://webcache.googleusercontent.com/search?q=cache:https://www.ibm.com/docs/en/cloud-paks/cp-integration/2023.4?topic=operators-installing-by-using-cli', curl_header=curl_header)
-            #response = requests.get('https://www.ibm.com/docs/en/cloud-paks/cp-integration/2023.4?topic=operators-installing-by-using-cli', curl_header=curl_header)
-            # get operator literal names from the table in the doc page
+            response = requests.get(literal_operator_name_url, headers=curl_header)
+            soup = BeautifulSoup(response.content, 'html.parser')
             
-        
-            installing_table = panda.read_html(literal_operator_name_url, match='Operator name', storage_options=curl_header)[0]
-            for i in range(0, len(installing_table.index)):
-                friendly_name = installing_table.iloc[i, 0].replace('*','') # in 16.1.0 there is an asterisk in foundation services
-                literal_name = installing_table.iloc[i, 1]
-                operator = Operator(friendly_name, literal_name)
-                tmp_operators[friendly_name] = operator
+            # Find all list items (bullets)
+            bullets = soup.find_all('li')
+            for bullet in bullets:
+                # Extract bullet text
+                friendly_name = bullet.get_text(strip=True).split('-',1)[0]
 
+                # Find the next code block after the bullet
+                code_block = bullet.find_next('pre')
+                if code_block:
+
+                    code_text = code_block.get_text() 
+                    # Attempt to parse YAML and extract metadata.name
+                    try:
+                        # Clean up the code text to ensure it's valid YAML
+                        yaml_content = yaml.safe_load(code_text)
+                        if isinstance(yaml_content, dict):
+                            metadata = yaml_content.get('metadata', {})
+                            literal_name = metadata.get('name')
+                            spec = yaml_content.get('spec', {})
+                            channel = spec.get('channel')
+                            operator = Operator(friendly_name, literal_name)
+                            operator.channel = channel
+                            tmp_operators[friendly_name] = operator
+
+                    except yaml.YAMLError as e:
+                        print(f"YAML parsing error: {e}")
 
             click.secho(f'Connecting to {case_commands_url}', fg='green')
-            # get operator case commands 
-            if self.version.startswith('202'): # for 2023.4, etc
-                commands_table = panda.read_html(case_commands_url, match='ommand', storage_options=curl_header)[0]
-                for i in range(0, len(commands_table.index)):
-                    friendly_name = (commands_table.iloc[i, 0]).replace(' (1)', '') # in 2023.4 the Cert manager appears like 'IBM Cert Manager (1)'
-                    export_command = commands_table.iloc[i, 1]
-                    operator = tmp_operators.get(friendly_name)
-                    if operator:
-                        operator.set_command(export_command)
-            else: # 16.1.0 and later
-                response = requests.get(case_commands_url, headers=curl_header)
-                soup = BeautifulSoup(response.content, 'html.parser')
-                header = soup.find('h2', string='Catalog sources for operators')
-                if header:
-                    ul = header.parent.find('ul')
-                    if ul:
-                        for li in ul.find_all('li'):
-                            result = li.text.split('\n')
-                            friendly_name = result[0]
-                            export_command = result[1]
-                            operator = tmp_operators.get(friendly_name)
-                            if operator:
-                                operator.set_command(export_command)
-
-            #operator.print()
-            click.secho(f'Connecting to {operator_channel_url}', fg='green')
-            # get operator channels 
-            try:
-                channels_table = panda.read_html(operator_channel_url, match='Operator channels', storage_options=curl_header)[0]
-            except Exception as e:
-                click.secho(f'Connecting to {operator_channel_url_alternative}', fg='green')
-                channels_table = panda.read_html(operator_channel_url_alternative, match='Operator channels', storage_options=curl_header)[0]
-                
-            #print(channels_table)
-            for i in range(0, len(channels_table.index)):
-                friendly_name = channels_table.iloc[i, 1]
-                if type(friendly_name) is not str:
-                    continue
-                channel = str(channels_table.iloc[i, 2]).split(',').pop()
-                operator = tmp_operators.get(friendly_name)
-                if operator is not None:
-                    channel = channel.replace('*', '').replace(' ','')
-                    operator.channel = channel
             
+            response = requests.get(case_commands_url, headers=curl_header)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            header = soup.find('h2', string='Catalog sources for operators')
+            if header:
+                ul = header.parent.find('ul')
+                if ul:
+                    for li in ul.find_all('li'):
+                        result = li.text.split('\n')
+                        friendly_name = result[0]
+                        export_command = result[1]
+                        operator = tmp_operators.get(friendly_name)
+                        if operator:
+                            operator.set_command(export_command)
+
+           
             # change the map key from operator.friendly_name to operator.literal_name
             for friendly_name, operator in tmp_operators.items():
                 if operator.case_version is not None:
