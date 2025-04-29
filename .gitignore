@@ -1,3 +1,6 @@
 .ibm-pak/
 *.yaml
 Pipfile
+oc-ibm_pak*
+LICENSE
+

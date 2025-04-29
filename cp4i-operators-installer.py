@@ -12,6 +12,7 @@ import time
 from bs4 import BeautifulSoup
 import requests
 import yaml
+import tarfile
 
 
 class Operator: 
@@ -37,7 +38,7 @@ class Operator:
             self.case_name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
             self.case_version = self.get_matched_pattern(r'export .*_VERSION=([^\s]+)', export_command)
            
-        self.command = f'export IBMPAK_HOME=. && oc ibm-pak get {self.case_name} --version {self.case_version} && oc ibm-pak generate mirror-manifests {self.case_name} icr.io --version {self.case_version}'
+        self.command = f'export IBMPAK_HOME=. && ./oc-ibm_pak get {self.case_name} --version {self.case_version} && ./oc-ibm_pak generate mirror-manifests {self.case_name} icr.io --version {self.case_version}'
 
     def get_matched_pattern(self, pattern, input_str):
          match = re.search(pattern, input_str)
@@ -86,8 +87,6 @@ class OperatorHandler:
             raise Exception ('Versions 202x are not supported. Use 202x branch instead')
        
         case_commands_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=images-adding-catalog-sources-openshift-cluster'
-        operator_channel_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-channel-versions-this-release'
-        operator_channel_url_alternative = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=reference-operator-instance-versions-this-release'
         literal_operator_name_url = f'https://www.ibm.com/docs/en/cloud-paks/cp-integration/{self.version}?topic=operators-installing-by-using-cli'
         
         tmp_operators = {}
@@ -107,7 +106,6 @@ class OperatorHandler:
                 # Find the next code block after the bullet
                 code_block = bullet.find_next('pre')
                 if code_block:
-
                     code_text = code_block.get_text() 
                     # Attempt to parse YAML and extract metadata.name
                     try:
@@ -118,8 +116,12 @@ class OperatorHandler:
                             literal_name = metadata.get('name')
                             spec = yaml_content.get('spec', {})
                             channel = spec.get('channel')
+                            cat_src = spec.get('source')
+                        
                             operator = Operator(friendly_name, literal_name)
+
                             operator.channel = channel
+                            operator.catsrc_name = cat_src
                             tmp_operators[friendly_name] = operator
 
                     except yaml.YAMLError as e:
@@ -213,22 +215,6 @@ class SubscriptionHandler:
                         if line.lstrip().startswith('name:'):
                             catalog_sources.append(line.split(':')[1].strip())
                 click.secho(f'Downloaded and stripped namespace from catalog-sources yaml file {file_path}', fg='green')
-
-            search_items = operator.case_name.replace('ibm','').replace('operator','').split('-')
-            while('' in search_items): search_items.remove('')
-            #print(search_items)
-            for item in search_items:
-                _break = False
-                for catalog in catalog_sources:
-                    #print(f'===> item: {item} catalog: {catalog}')
-                    if item in catalog:
-                        operator.catsrc_name = catalog
-                        _break = True
-                        break
-                    if _break: break
-            if operator.catsrc_name is None:
-                operator.catsrc_name = 'opencloud-operators'           
-            #operator.print()
     
     def apply_catalog_sources(self):
         click.secho('\nApplying catalog sources...', fg='green')
@@ -302,9 +288,23 @@ class Utils:
         if subprocess.run(['oc', 'cluster-info'], stdout=subprocess.DEVNULL).returncode != 0:
             raise Exception ('oc is not logged-in. Make sure you are logged-in to the correct cluster')
         
-        click.secho('   Checking ibm-pak is installed...', fg='green')
-        if subprocess.run(['oc', 'ibm-pak'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT).returncode != 0:
-            raise Exception('ibm-pak oc module is not installed. Get ibm-pak from https://github.com/IBM/ibm-pak#readme')  
+        click.secho('   Checking for ibm-pak...', fg='green')
+        if not os.path.exists('./oc-ibm_pak'):
+            click.secho('     Downloading ibm-pak...', fg='green')
+            output = subprocess.check_output(['uname', '-o', '-m'], text=True).strip()
+            os_name, arch = output.lower().split()
+            url = f'https://github.com/IBM/ibm-pak/releases/download/v1.18.0/oc-ibm_pak-{os_name}-{arch}.tar.gz'
+            filename = f'oc-ibm_pak.tar.gz'
+        
+            with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                with open(filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            with tarfile.open(filename, 'r:gz') as tar:
+                tar.extractall(filter='data')  # You can set a custom extraction directory
+                tar.close()        
+            os.rename(f'oc-ibm_pak-{os_name}-{arch}', 'oc-ibm_pak')
         
         click.echo()
         
