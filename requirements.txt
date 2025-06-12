@@ -11,7 +11,7 @@ httpcore==1.0.5
 httpx==0.27.2
 hyperframe==6.0.1
 idna==3.8
-lxml==4.9.3
+lxml==5.4.0
 numpy==1.26.2
 pandas==2.2.2
 python-dateutil==2.8.2
