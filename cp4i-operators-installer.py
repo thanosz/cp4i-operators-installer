@@ -12,6 +12,7 @@ import traceback
 import time
 from bs4 import BeautifulSoup
 import requests
+import tarfile
 
 class Operator: 
     # Class to hold the Operator attributes.
@@ -36,7 +37,7 @@ class Operator:
             self.case_name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
             self.case_version = self.get_matched_pattern(r'export .*_VERSION=([^\s]+)', export_command)
            
-        self.command = f'export IBMPAK_HOME=. && oc ibm-pak get {self.case_name} --version {self.case_version} && oc ibm-pak generate mirror-manifests {self.case_name} icr.io --version {self.case_version}'
+        self.command = f'export IBMPAK_HOME=. && ./oc-ibm_pak get {self.case_name} --version {self.case_version} && ./oc-ibm_pak generate mirror-manifests {self.case_name} icr.io --version {self.case_version}'
 
     def get_matched_pattern(self, pattern, input_str):
          match = re.search(pattern, input_str)
@@ -313,9 +314,23 @@ class Utils:
         if subprocess.run(['oc', 'cluster-info'], stdout=subprocess.DEVNULL).returncode != 0:
             raise Exception ('oc is not logged-in. Make sure you are logged-in to the correct cluster')
         
-        click.secho('   Checking ibm-pak is installed...', fg='green')
-        if subprocess.run(['oc', 'ibm-pak'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT).returncode != 0:
-            raise Exception('ibm-pak oc module is not installed. Get ibm-pak from https://github.com/IBM/ibm-pak#readme')  
+        click.secho('   Checking for ibm-pak...', fg='green')
+        if not os.path.exists('./oc-ibm_pak'):
+            click.secho('     Downloading ibm-pak...', fg='green')
+            output = subprocess.check_output(['uname', '-o', '-m'], text=True).strip()
+            os_name, arch = output.lower().split()
+            url = f'https://github.com/IBM/ibm-pak/releases/download/v1.18.0/oc-ibm_pak-{os_name}-{arch}.tar.gz'
+            filename = f'oc-ibm_pak.tar.gz'
+        
+            with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                with open(filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            with tarfile.open(filename, 'r:gz') as tar:
+                tar.extractall(filter='data')  # You can set a custom extraction directory
+                tar.close()        
+            os.rename(f'oc-ibm_pak-{os_name}-{arch}', 'oc-ibm_pak')
         
         click.echo()
         
