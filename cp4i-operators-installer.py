@@ -290,10 +290,11 @@ class Utils:
         
         click.secho('   Checking for ibm-pak...', fg='green')
         if not os.path.exists('./oc-ibm_pak'):
-            click.secho('     Downloading ibm-pak...', fg='green')
-            output = subprocess.check_output(['uname', '-o', '-m'], text=True).strip()
+            output = subprocess.check_output(['uname', '-s', '-m'], text=True).strip()
             os_name, arch = output.lower().split()
-            url = f'https://github.com/IBM/ibm-pak/releases/download/v1.18.0/oc-ibm_pak-{os_name}-{arch}.tar.gz'
+            if arch == "x86_64": arch = "amd64"
+            url = f'https://github.com/IBM/ibm-pak/releases/download/v1.18.1/oc-ibm_pak-{os_name}-{arch}.tar.gz'
+            click.secho(f'     Downloading ibm-pak... ({url})', fg='green')
             filename = f'oc-ibm_pak.tar.gz'
         
             with requests.get(url, stream=True) as r:
