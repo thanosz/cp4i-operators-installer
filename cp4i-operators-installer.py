@@ -32,8 +32,8 @@ class Operator:
         if 'oc apply' in export_command:
             # 16.1.0 documentation changed the commands and replaced the use of ibm-pak to directly applying the catsrc from a file in public github
             # Instead of changing the whole logic of the app, we generate an ibm-pak command as it was previously expected
-            self.case_name = self.get_matched_pattern(r'/([a-zA-Z0-9\-\_]+)/(\d+\.\d+\.\d+)/', export_command)
-            self.case_version = self.get_matched_pattern(r'/(\d+\.\d+\.\d+)/', export_command)
+            self.case_name = self.get_matched_pattern(r'/case/([^/]+)/', export_command)
+            self.case_version = self.get_matched_pattern(r'/case/[^/]+/([^/]+)/', export_command)
         else:
             self.case_name = self.get_matched_pattern(r'export .*_NAME=([^\s]+)', export_command)
             self.case_version = self.get_matched_pattern(r'export .*_VERSION=([^\s]+)', export_command)
