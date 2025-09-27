@@ -278,6 +278,7 @@ spec:
 
 class Utils:
     non_interactive = False
+    not_apply = False
     def sanity_check():
         click.secho('Sanity check...', fg='green')
 
@@ -310,6 +311,9 @@ class Utils:
         click.echo()
         
     def run_commands(oc_commands, delay=0, extra_message=''):
+        if Utils.not_apply is True:
+            click.secho('\nSkipped...', fg='yellow')
+            return
         click.secho('\nThe following will now run...', fg='green')
         for cmd in oc_commands:
             click.secho(f'   {cmd}', fg='yellow')
@@ -342,11 +346,14 @@ def main():
 @click.option('--target_ns', default='openshift-operators', help='The namespace to deploy the operator subscriptons (default: openshift-operators, i.e. All Namespaces)')
 @click.option('--operator', '-o', multiple=True, default=['all'], help='Operator(s) to apply (default: all)')
 @click.option('--noninteractive', is_flag=True, default=False, help='Do not ask for user confirmation and apply the changes')
+@click.option('--notapply', is_flag=True, default=False, help='Do not apply the catalog sources and subscriptions')
 
-def deploy(version, namespaced, target_ns, operator, list, noninteractive):
+
+def deploy(version, namespaced, target_ns, operator, list, noninteractive, notapply):
     
     try:
         Utils.non_interactive = noninteractive
+        Utils.not_apply = notapply
         operator_handler = OperatorHandler(version)
         operator_handler.populate()
         operator_handler.print()
