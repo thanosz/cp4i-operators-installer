@@ -294,7 +294,7 @@ class Utils:
             output = subprocess.check_output(['uname', '-s', '-m'], text=True).strip()
             os_name, arch = output.lower().split()
             if arch == "x86_64": arch = "amd64"
-            url = f'https://github.com/IBM/ibm-pak/releases/download/v1.18.1/oc-ibm_pak-{os_name}-{arch}.tar.gz'
+            url = f'https://github.com/IBM/ibm-pak/releases/download/v1.24.0/oc-ibm_pak-{os_name}-{arch}.tar.gz'
             click.secho(f'     Downloading ibm-pak... ({url})', fg='green')
             filename = f'oc-ibm_pak.tar.gz'
         
