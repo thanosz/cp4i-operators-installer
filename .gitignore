@@ -1,6 +1,30 @@
+# Python artifacts
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+Pipfile
+
+# Go artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+cp4i-operators-installer
+cp4i-operators-installer-*
+
+# Go build cache
+*.test
+*.out
+go.work
+
+# IBM pak and generated files
 .ibm-pak/
 *.yaml
-Pipfile
 oc-ibm_pak*
-LICENSE
 
+# Other
+LICENSE
